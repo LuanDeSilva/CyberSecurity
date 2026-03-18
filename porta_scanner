@@ -1,0 +1,98 @@
+import socket
+import threading
+from datetime import datetime
+
+#Test Ip/host= scanme.nmap.org port 1 end port 1000
+
+# ========== CONFIG ========== 
+TARGET = input("Target IP or Host: ")
+START_PORT = int(input("Start Port: "))
+END_PORT = int(input("End Port: "))
+TIMEOUT = 1
+# ============================ 
+
+print("\n[+] Resolving target...")
+try:
+    target_ip = socket.gethostbyname(TARGET)
+except socket.gaierror:
+    print("[-] Invalid host.")
+    exit()
+
+print(f"[+] Target: {TARGET} ({target_ip})")
+print(f"[+] Scanning ports {START_PORT} - {END_PORT}")
+print("[+] Scan started at:", datetime.now())
+print("-" * 50)
+
+open_ports = []
+
+common_services = {
+    21: "FTP",
+    22: "SSH",
+    23: "Telnet",
+    25: "SMTP",
+    53: "DNS",
+    80: "HTTP",
+    110: "POP3",
+    139: "NetBIOS",
+    143: "IMAP",
+    443: "HTTPS",
+    445: "SMB",
+    3306: "MySQL",
+    3389: "RDP",
+    8080: "HTTP-Proxy"
+}
+
+lock = threading.Lock()
+
+def grab_banner(sock):
+    try:
+        sock.send(b'HEAD / HTTP/1.0\r\n\r\n')
+        banner = sock.recv(1024).decode().strip()
+        return banner[:100]
+    except:
+        return None
+
+def scan_port(port):
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(TIMEOUT)
+        result = sock.connect_ex((target_ip, port))
+        
+        if result == 0:
+            service = common_services.get(port, "Unknown")
+            banner = grab_banner(sock)
+            
+            with lock:
+                open_ports.append(port)
+                print(f"[OPEN] Port {port} | Service: {service}")
+                if banner:
+                    print(f"       Banner: {banner}")
+        sock.close()
+    except:
+        pass
+
+threads = []
+
+for port in range(START_PORT, END_PORT + 1):
+    t = threading.Thread(target=scan_port, args=(port,))
+    threads.append(t)
+    t.start()
+
+for t in threads:
+    t.join()
+
+print("-" * 50)
+print("[+] Scan finished at:", datetime.now())
+
+# ========== REPORT ==========
+if open_ports:
+    print(f"[+] Open ports found: {len(open_ports)}")
+    print("Ports:", ", ".join(map(str, open_ports)))
+    
+    with open("scan_report.txt", "w") as f:
+        f.write(f"Target: {TARGET} ({target_ip})\n")
+        f.write(f"Scan Time: {datetime.now()}\n")
+        f.write(f"Open Ports: {', '.join(map(str, open_ports))}\n")
+    print("[+] Report saved to scan_report.txt")
+else:
+    print("[-] No open ports found.")
