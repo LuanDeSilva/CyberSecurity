@@ -1,0 +1,131 @@
+#Estou aprendendo melhor como funciona a linguagem python, som sua sintaxe mais simples,
+#pude com ajuda de cursos e mentores, desenvolver este pequeno projeto de scanner de IPs 
+#conseguindo indentificar portas abertas e vulneraveis para explotração.
+
+import socket
+import threading
+from datetime import datetime
+
+# =========TEST==========>> HOST: scanme.nmap.org
+
+# ========= CONFIG =========
+TARGET = input("Target IP or Host: ")
+START_PORT = int(input("Start Port: "))
+END_PORT = int(input("End Port: "))
+TIMEOUT = 1
+# ==========================
+
+print("\n[+] Resolving target...")
+try:
+    target_ip = socket.gethostbyname(TARGET)
+except socket.gaierror:
+    print("[-] Invalid host.")
+    exit()
+
+print(f"[+] Target: {TARGET} ({target_ip})")
+print(f"[+] Scanning ports {START_PORT} - {END_PORT}")
+print("[+] Scan started at:", datetime.now())
+print("-" * 60)
+
+open_ports = []
+findings = []
+
+common_services = {
+    21: "FTP",
+    22: "SSH",
+    23: "Telnet",
+    25: "SMTP",
+    53: "DNS",
+    80: "HTTP",
+    110: "POP3",
+    139: "NetBIOS",
+    143: "IMAP",
+    443: "HTTPS",
+    445: "SMB",
+    3306: "MySQL",
+    3389: "RDP",
+    8080: "HTTP-Proxy"
+}
+
+# Vulnerabilidades comuns por serviço
+common_vulns = {
+    21: ("FTP", "Anonymous login enabled", "Medium"),
+    23: ("Telnet", "Unencrypted remote access", "High"),
+    25: ("SMTP", "Open mail relay possible", "Medium"),
+    80: ("HTTP", "Web server exposed - check for OWASP Top 10", "Info"),
+    110: ("POP3", "Cleartext authentication", "Medium"),
+    139: ("NetBIOS", "Legacy file sharing exposure", "High"),
+    445: ("SMB", "Possible SMBv1 / EternalBlue exposure", "Critical"),
+    3306: ("MySQL", "Database service exposed", "High"),
+    3389: ("RDP", "Remote Desktop exposed to internet", "High"),
+    8080: ("HTTP-Proxy", "Proxy service exposed", "Medium")
+}
+
+lock = threading.Lock()
+
+def grab_banner(sock):
+    try:
+        sock.send(b'HEAD / HTTP/1.0\r\n\r\n')
+        banner = sock.recv(1024).decode(errors="ignore").strip()
+        return banner[:120]
+    except:
+        return None
+
+def check_vulnerability(port):
+    if port in common_vulns:
+        service, desc, risk = common_vulns[port]
+        findings.append((port, service, desc, risk))
+        print(f"   [!] Potential Vulnerability: {desc} | Risk: {risk}")
+
+def scan_port(port):
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(TIMEOUT)
+        result = sock.connect_ex((target_ip, port))
+
+        if result == 0:
+            service = common_services.get(port, "Unknown")
+            banner = grab_banner(sock)
+
+            with lock:
+                open_ports.append(port)
+                print(f"[OPEN] Port {port} | Service: {service}")
+                if banner:
+                    print(f"       Banner: {banner}")
+                check_vulnerability(port)
+
+        sock.close()
+    except:
+        pass
+
+threads = []
+
+for port in range(START_PORT, END_PORT + 1):
+    t = threading.Thread(target=scan_port, args=(port,))
+    threads.append(t)
+    t.start()
+
+for t in threads:
+    t.join()
+
+print("-" * 60)
+print("[+] Scan finished at:", datetime.now())
+
+# ========= REPORT =========
+with open("scan_report.txt", "w") as f:
+    f.write(f"Target: {TARGET} ({target_ip})\n")
+    f.write(f"Scan Time: {datetime.now()}\n\n")
+
+    if open_ports:
+        f.write(f"Open Ports ({len(open_ports)}): {', '.join(map(str, open_ports))}\n\n")
+    else:
+        f.write("No open ports found.\n")
+
+    if findings:
+        f.write("Potential Vulnerabilities:\n")
+        for port, service, desc, risk in findings:
+            f.write(f"- Port {port} ({service}): {desc} | Risk: {risk}\n")
+    else:
+        f.write("No common vulnerabilities detected.\n")
+
+print("[+] Report saved to scan_report.txt")
